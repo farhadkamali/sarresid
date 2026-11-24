@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("sarresid_data", MODE_PRIVATE)
         setContent {
+            AuthGate {
             SarresidApp(
                 loadEntries = {
                     val array = JSONArray(prefs.getString("entries", "[]"))
@@ -95,6 +96,7 @@ class MainActivity : ComponentActivity() {
                     prefs.edit().putString("borrowers", array.toString()).apply()
                 }
             )
+            }
         }
     }
 }
