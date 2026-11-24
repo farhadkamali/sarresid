@@ -261,20 +261,24 @@ private data class JalaliDate(val year: Int, val month: Int, val day: Int) {
         fun monthName(month: Int) = names.getOrElse(month - 1) { "ماه" }
         fun today(): JalaliDate {
             val c = Calendar.getInstance()
-            val gy = c.get(Calendar.YEAR); val gm = c.get(Calendar.MONTH) + 1; val gd = c.get(Calendar.DAY_OF_MONTH)
-            val gDays = intArrayOf(0,31, if (isLeap(gy)) 29 else 28,31,30,31,30,31,31,30,31,30,31)
-            var jy = gy - 621
-            var days = 0
-            for (m in 1 until gm) days += gDays[m]
-            days += gd
-            val start = if (isLeap(gy - 1)) 366 else 365
-            val marchDay = if (isLeap(gy)) 20 else 21
-            val passed = if (gm > 3 || (gm == 3 && gd >= marchDay)) days - (31 + 28 + if (isLeap(gy)) 1 else 0) - (marchDay - 1) else days + (if (isLeap(gy - 1)) 10 else 11)
-            if (passed <= 0) jy--
-            val jDay = if (passed > 0) passed else passed + 365 + if (isLeap(gy - 1)) 1 else 0
-            val jm = if (jDay <= 186) (jDay - 1) / 31 + 1 else (jDay - 187) / 30 + 7
-            val jd = if (jDay <= 186) (jDay - 1) % 31 + 1 else (jDay - 187) % 30 + 1
-            return JalaliDate(jy, jm.coerceIn(1,12), jd.coerceIn(1,31))
+            val gy = c.get(Calendar.YEAR)
+            val gm = c.get(Calendar.MONTH) + 1
+            val gd = c.get(Calendar.DAY_OF_MONTH)
+            val gdm = intArrayOf(0,31,59,90,120,151,181,212,243,273,304,334)
+            val gy2 = if (gm > 2) gy + 1 else gy
+            var days = 355666 + 365 * gy + (gy2 + 3) / 4 - (gy2 + 99) / 100 +
+                (gy2 + 399) / 400 + gd + gdm[gm - 1]
+            var jy = -1595 + 33 * (days / 12053)
+            days %= 12053
+            jy += 4 * (days / 1461)
+            days %= 1461
+            if (days > 365) {
+                jy += (days - 1) / 365
+                days = (days - 1) % 365
+            }
+            val jm = if (days < 186) 1 + days / 31 else 7 + (days - 186) / 30
+            val jd = if (days < 186) 1 + days % 31 else 1 + (days - 186) % 30
+            return JalaliDate(jy, jm, jd)
         }
         private fun isLeap(y: Int) = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
     }
