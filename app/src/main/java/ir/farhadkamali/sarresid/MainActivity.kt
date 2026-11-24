@@ -127,7 +127,16 @@ private fun SarresidApp(
             containerColor = Color(0xFFF6F9FC),
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("سررسید", fontWeight = FontWeight.Bold, color = Ink) },
+                    title = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("سررسید", fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                "فرهاد کمالی | آرایشگاه امپراطور بندرعباس",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray
+                            )
+                        }
+                    },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.White)
                 )
             },
