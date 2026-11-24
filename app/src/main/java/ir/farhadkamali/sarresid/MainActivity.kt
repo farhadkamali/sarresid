@@ -43,6 +43,12 @@ data class Entry(
     val year: Int
 )
 
+data class BorrowRecord(
+    val id: Long, val name: String, val amount: Long,
+    val day: Int, val month: Int, val year: Int,
+    val note: String, val paid: Boolean = false
+)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +73,26 @@ class MainActivity : ComponentActivity() {
                         })
                     }
                     prefs.edit().putString("entries", array.toString()).apply()
+                },
+                loadBorrowers = {
+                    val array = JSONArray(prefs.getString("borrowers", "[]"))
+                    List(array.length()) { i ->
+                        val o = array.getJSONObject(i)
+                        BorrowRecord(o.getLong("id"), o.getString("name"), o.getLong("amount"),
+                            o.getInt("day"), o.getInt("month"), o.getInt("year"),
+                            o.optString("note", ""), o.optBoolean("paid", false))
+                    }
+                },
+                saveBorrowers = { list ->
+                    val array = JSONArray()
+                    list.forEach { b ->
+                        array.put(JSONObject().apply {
+                            put("id", b.id); put("name", b.name); put("amount", b.amount)
+                            put("day", b.day); put("month", b.month); put("year", b.year)
+                            put("note", b.note); put("paid", b.paid)
+                        })
+                    }
+                    prefs.edit().putString("borrowers", array.toString()).apply()
                 }
             )
         }
@@ -75,13 +101,19 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SarresidApp(loadEntries: () -> List<Entry>, saveEntries: (List<Entry>) -> Unit) {
+private fun SarresidApp(
+    loadEntries: () -> List<Entry>, saveEntries: (List<Entry>) -> Unit,
+    loadBorrowers: () -> List<BorrowRecord>, saveBorrowers: (List<BorrowRecord>) -> Unit
+) {
     var entries by remember { mutableStateOf(loadEntries()) }
+    var borrowers by remember { mutableStateOf(loadBorrowers()) }
     val today = remember { JalaliDate.today() }
     var year by remember { mutableIntStateOf(today.year) }
     var month by remember { mutableIntStateOf(today.month) }
     var selectedTab by remember { mutableStateOf("کارکرد") }
     var showDialog by remember { mutableStateOf(false) }
+    var showBorrowDialog by remember { mutableStateOf(false) }
+    var showAllDebtors by remember { mutableStateOf(false) }
 
     val monthEntries = entries.filter { it.year == year && it.month == month }
     val income = monthEntries.filter { it.type == "کارکرد" }.sumOf { it.amount }
@@ -100,7 +132,9 @@ private fun SarresidApp(loadEntries: () -> List<Entry>, saveEntries: (List<Entry
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = { showDialog = true }, containerColor = Blue, contentColor = Color.White) {
+                FloatingActionButton(onClick = {
+                    if (selectedTab == "قرضی") showBorrowDialog = true else showDialog = true
+                }, containerColor = Blue, contentColor = Color.White) {
                     Icon(Icons.Default.Add, contentDescription = "ثبت مورد")
                 }
             }
@@ -143,14 +177,40 @@ private fun SarresidApp(loadEntries: () -> List<Entry>, saveEntries: (List<Entry
                 }
                 item {
                     Row(Modifier.fillMaxWidth().background(Color(0xFFE9EEF4), RoundedCornerShape(14.dp)).padding(4.dp)) {
-                        listOf("کارکرد", "خرید").forEach { tab ->
+                        listOf("کارکرد", "خرید", "قرضی").forEach { tab ->
                             Box(Modifier.weight(1f).background(if (selectedTab == tab) Color.White else Color.Transparent, RoundedCornerShape(11.dp)).clickable { selectedTab = tab }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                                 Text(tab, color = if (selectedTab == tab) Blue else Color.Gray, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
-                if (visible.isEmpty()) {
+                if (selectedTab == "قرضی") {
+                    item {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = !showAllDebtors, onClick = { showAllDebtors = false }, label = { Text("بدهکاران فعال") })
+                            FilterChip(selected = showAllDebtors, onClick = { showAllDebtors = true }, label = { Text("لیست کلی بدهکاران") })
+                        }
+                    }
+                    val debtorRows = if (showAllDebtors) borrowers.sortedWith(compareByDescending<BorrowRecord> { it.year }.thenByDescending { it.month }.thenByDescending { it.day })
+                        else borrowers.filterNot { it.paid }.sortedWith(compareByDescending<BorrowRecord> { it.year }.thenByDescending { it.month }.thenByDescending { it.day })
+                    if (debtorRows.isEmpty()) {
+                        item {
+                            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(if (showAllDebtors) "هنوز بدهکاری ثبت نشده" else "بدهکار فعالی وجود ندارد", color = Ink, fontWeight = FontWeight.Medium)
+                                    Text("برای ثبت قرض جدید، دکمه + را بزن", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    } else {
+                        items(debtorRows, key = { "borrow-" + it.id }) { borrower ->
+                            BorrowerRow(borrower, showAllDebtors) {
+                                borrowers = borrowers.map { if (it.id == borrower.id) it.copy(paid = true) else it }
+                                saveBorrowers(borrowers)
+                            }
+                        }
+                    }
+                } else if (visible.isEmpty()) {
                     item {
                         Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
                             Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -169,6 +229,18 @@ private fun SarresidApp(loadEntries: () -> List<Entry>, saveEntries: (List<Entry
                 }
             }
         }
+        if (showBorrowDialog) {
+            AddBorrowerDialog(
+                today = today,
+                onDismiss = { showBorrowDialog = false },
+                onSave = { name, amount, note ->
+                    val record = BorrowRecord(System.currentTimeMillis(), name, amount, today.day, today.month, today.year, note)
+                    borrowers = borrowers + record
+                    saveBorrowers(borrowers)
+                    showBorrowDialog = false
+                }
+            )
+        }
         if (showDialog) {
             AddEntryDialog(
                 initialType = selectedTab, today = today,
@@ -183,6 +255,53 @@ private fun SarresidApp(loadEntries: () -> List<Entry>, saveEntries: (List<Entry
             )
         }
     }
+}
+
+@Composable
+private fun BorrowerRow(borrower: BorrowRecord, showPaidStatus: Boolean, onPaid: () -> Unit) {
+    Card(shape = RoundedCornerShape(15.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(borrower.name, color = Ink, fontWeight = FontWeight.SemiBold)
+                    Text("قرض در ${borrower.day} ${JalaliDate.monthName(borrower.month)} ${borrower.year}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    if (borrower.note.isNotBlank()) Text(borrower.note, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(money(borrower.amount) + " تومان", color = Red, fontWeight = FontWeight.Bold)
+                    if (showPaidStatus) Text(if (borrower.paid) "تسویه‌شده" else "بدهکار", color = if (borrower.paid) Green else Red, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (!borrower.paid) {
+                Button(onClick = onPaid, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Green)) {
+                    Text("تسویه شد ✓")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddBorrowerDialog(today: JalaliDate, onDismiss: () -> Unit, onSave: (String, Long, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    val parsedAmount = amount.toLongOrNull()
+    val valid = name.isNotBlank() && parsedAmount != null && parsedAmount > 0
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ثبت قرض جدید", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("تاریخ ثبت: ${today.day} ${JalaliDate.monthName(today.month)} ${today.year}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(name, { name = it }, label = { Text("نام شخص") }, singleLine = true)
+                OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("مبلغ قرض به تومان") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(note, { note = it }, label = { Text("توضیحات (اختیاری)") }, singleLine = true)
+            }
+        },
+        confirmButton = { TextButton(enabled = valid, onClick = { onSave(name.trim(), parsedAmount!!, note.trim()) }) { Text("ثبت قرض") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+    )
 }
 
 @Composable
