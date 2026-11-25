@@ -26,9 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthException
 
 @Composable
 fun AuthGate(content: @Composable () -> Unit) {
@@ -45,46 +43,18 @@ fun AuthGate(content: @Composable () -> Unit) {
         onDispose { auth.removeAuthStateListener(listener) }
     }
 
-    when {
-        checking -> Surface(modifier = Modifier.fillMaxSize()) {
+    if (checking) {
+        Surface(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) { CircularProgressIndicator() }
         }
-        user != null -> content()
-        else -> SignInScreen(auth)
-    }
-}
-
-private fun authErrorMessage(error: Exception?): String {
-    if (error is FirebaseNetworkException) {
-        return "اتصال اینترنت برقرار نیست. اینترنت را بررسی کن و دوباره تلاش کن. (network-error)"
-    }
-
-    val authException = error as? FirebaseAuthException
-    val code = authException?.errorCode
-    if (code == null) {
-        val type = error?.javaClass?.simpleName ?: "NoException"
-        val detail = error?.localizedMessage?.takeIf { it.isNotBlank() } ?: "بدون توضیح از Firebase"
-        val cause = error?.cause?.javaClass?.simpleName
-        val causeText = if (cause != null) " / $cause" else ""
-        return "خطای فنی ورود: $type$causeText — $detail"
-    }
-    return when (code) {
-        "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست. (invalid-email)"
-        "ERROR_USER_NOT_FOUND", "ERROR_INVALID_CREDENTIAL" ->
-            "این ایمیل در همین پروژه Firebase حساب قابل ورود ندارد یا رمز عبور اشتباه است. (invalid-credential)"
-        "ERROR_WRONG_PASSWORD" -> "رمز عبور اشتباه است. (wrong-password)"
-        "ERROR_USER_DISABLED" -> "این حساب غیرفعال شده است. (user-disabled)"
-        "ERROR_OPERATION_NOT_ALLOWED" ->
-            "ورود با ایمیل و رمز عبور در Firebase فعال نیست. (operation-not-allowed)"
-        "ERROR_TOO_MANY_REQUESTS" -> "تلاش‌های ناموفق زیاد بوده؛ کمی بعد دوباره امتحان کن. (too-many-requests)"
-        "ERROR_EMAIL_ALREADY_IN_USE" -> "این ایمیل قبلاً حساب دارد؛ از دکمه ورود استفاده کن. (email-already-in-use)"
-        "ERROR_WEAK_PASSWORD" -> "رمز عبور باید حداقل ۶ کاراکتر باشد. (weak-password)"
-        "ERROR_NETWORK_REQUEST_FAILED" -> "ارتباط با Firebase برقرار نشد؛ اینترنت را بررسی کن. (network-request-failed)"
-        else -> "ورود انجام نشد. کد خطا: $code"
+    } else if (user != null) {
+        content()
+    } else {
+        SignInScreen(auth)
     }
 }
 
@@ -127,16 +97,16 @@ private fun SignInScreen(auth: FirebaseAuth) {
             } else {
                 Button(
                     onClick = {
-                        val cleanEmail = email.trim().lowercase()
-                        if (cleanEmail.isBlank() || password.length < 6) {
+                        if (email.isBlank() || password.length < 6) {
                             message = "ایمیل معتبر و رمز عبور حداقل ۶ کاراکتری وارد کن."
                         } else {
                             busy = true
                             message = ""
-                            auth.signInWithEmailAndPassword(cleanEmail, password)
+                            auth.signInWithEmailAndPassword(email, password)
                                 .addOnCompleteListener { task ->
                                     busy = false
-                                    if (!task.isSuccessful) message = authErrorMessage(task.exception)
+                                    message = if (task.isSuccessful) "" else
+                                        task.exception?.localizedMessage ?: "ورود انجام نشد؛ اطلاعات را بررسی کن."
                                 }
                         }
                     },
@@ -145,16 +115,16 @@ private fun SignInScreen(auth: FirebaseAuth) {
                 ) { Text("ورود") }
                 TextButton(
                     onClick = {
-                        val cleanEmail = email.trim().lowercase()
-                        if (cleanEmail.isBlank() || password.length < 6) {
+                        if (email.isBlank() || password.length < 6) {
                             message = "برای ساخت حساب، ایمیل معتبر و رمز حداقل ۶ کاراکتری وارد کن."
                         } else {
                             busy = true
                             message = ""
-                            auth.createUserWithEmailAndPassword(cleanEmail, password)
+                            auth.createUserWithEmailAndPassword(email, password)
                                 .addOnCompleteListener { task ->
                                     busy = false
-                                    if (!task.isSuccessful) message = authErrorMessage(task.exception)
+                                    message = if (task.isSuccessful) "" else
+                                        task.exception?.localizedMessage ?: "ساخت حساب انجام نشد."
                                 }
                         }
                     },
