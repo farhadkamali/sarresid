@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -66,41 +67,28 @@ fun AuthGate(content: @Composable (String) -> Unit) {
     }
 }
 
-private fun signInErrorMessage(error: Exception?): String {
-    val type = error?.javaClass?.simpleName ?: "UnknownException"
-    val authCode = (error as? FirebaseAuthException)?.errorCode
+private fun authErrorMessage(error: Exception?): String {
+    val code = (error as? FirebaseAuthException)?.errorCode
     val detail = error?.localizedMessage
         ?.replace(Regex("<[^>]*>"), " ")
         ?.replace(Regex("\\s+"), " ")
-        ?.take(180)
-        ?.takeIf { it.isNotBlank() }
-
+        ?.take(140)
     val friendly = when {
-        error is FirebaseNetworkException ->
-            "ارتباط با سرویس ورود برقرار نشد."
-        authCode == "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست."
-        authCode == "ERROR_USER_NOT_FOUND" ||
-            authCode == "ERROR_INVALID_CREDENTIAL" ||
-            authCode == "ERROR_WRONG_PASSWORD" -> "ایمیل یا رمز عبور صحیح نیست."
-        authCode == "ERROR_USER_DISABLED" -> "این حساب غیرفعال شده است."
-        authCode == "ERROR_OPERATION_NOT_ALLOWED" ->
-            "این روش ورود در Firebase فعال نیست."
-        authCode == "ERROR_TOO_MANY_REQUESTS" ->
-            "تلاش‌های ناموفق زیاد بوده؛ کمی بعد دوباره امتحان کن."
-        authCode == "ERROR_NETWORK_REQUEST_FAILED" ->
-            "درخواست ورود به سرور کامل نشد؛ ممکن است پاسخ سرور یا محدودیت دسترسی باشد."
-        else -> "ورود انجام نشد."
+        error is FirebaseNetworkException -> "ارتباط اینترنت برقرار نیست؛ اتصال را بررسی کن."
+        code == "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست."
+        code == "ERROR_USER_NOT_FOUND" || code == "ERROR_WRONG_PASSWORD" ||
+            code == "ERROR_INVALID_CREDENTIAL" -> "ایمیل یا رمز عبور اشتباه است."
+        code == "ERROR_EMAIL_ALREADY_IN_USE" -> "این ایمیل قبلاً ثبت شده؛ از گزینه ورود استفاده کن."
+        code == "ERROR_WEAK_PASSWORD" -> "رمز عبور باید حداقل ۶ کاراکتر باشد."
+        code == "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ->
+            "این ایمیل قبلاً با روش دیگری ثبت شده؛ با ایمیل و رمز قبلی وارد شو."
+        code == "ERROR_OPERATION_NOT_ALLOWED" -> "این روش ورود در تنظیمات Firebase فعال نیست."
+        code == "ERROR_TOO_MANY_REQUESTS" -> "تعداد تلاش‌ها زیاد بوده؛ کمی بعد دوباره امتحان کن."
+        else -> "عملیات انجام نشد."
     }
-
-    val diagnostic = buildString {
-        append("کد فنی: ")
-        append(authCode ?: type)
-        if (detail != null) {
-            append(" | ")
-            append(detail)
-        }
-    }
-    return "$friendly\n$diagnostic"
+    return if (code != null) "$friendly\nکد خطا: $code" +
+        (detail?.let { " | $it" } ?: "") else friendly +
+        (detail?.let { "\\n$it" } ?: "")
 }
 
 @Composable
@@ -121,37 +109,34 @@ private fun SignInScreen(auth: FirebaseAuth) {
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
+    val googleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode != Activity.RESULT_OK) {
+            busy = false
+            message = "ورود با گوگل لغو شد."
+        } else {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                     .getResult(ApiException::class.java)
-                val idToken = account.idToken
-                if (idToken.isNullOrBlank()) {
+                val token = account.idToken
+                if (token.isNullOrBlank()) {
                     busy = false
-                    message = "توکن گوگل دریافت نشد. تنظیمات OAuth را بررسی کن."
+                    message = "توکن گوگل دریافت نشد؛ تنظیمات شناسه OAuth را بررسی کن."
                 } else {
-                    val credential = GoogleAuthProvider.getCredential(idToken, null)
-                    auth.signInWithCredential(credential)
-                        .addOnCompleteListener { task ->
-                            busy = false
-                            if (!task.isSuccessful) {
-                                message = signInErrorMessage(task.exception)
-                            }
-                        }
+                    val credential = GoogleAuthProvider.getCredential(token, null)
+                    auth.signInWithCredential(credential).addOnCompleteListener { task ->
+                        busy = false
+                        if (!task.isSuccessful) message = authErrorMessage(task.exception)
+                    }
                 }
-            } catch (error: ApiException) {
+            } catch (e: ApiException) {
                 busy = false
-                message = "انتخاب حساب گوگل انجام نشد. کد فنی: ${error.statusCode}"
-            } catch (error: Exception) {
+                message = "انتخاب حساب گوگل انجام نشد. کد فنی: ${e.statusCode}"
+            } catch (e: Exception) {
                 busy = false
-                message = signInErrorMessage(error)
+                message = authErrorMessage(e)
             }
-        } else {
-            busy = false
-            message = "ورود با گوگل لغو شد."
         }
     }
 
@@ -163,21 +148,29 @@ private fun SignInScreen(auth: FirebaseAuth) {
         ) {
             Text("سررسید", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            Text("برای ورود، یکی از روش‌های زیر را انتخاب کن.")
-            Spacer(Modifier.height(24.dp))
+            Text("برای ورود یا ساخت حساب، یکی از روش‌ها را انتخاب کن.")
+            Spacer(Modifier.height(22.dp))
+
             OutlinedButton(
                 onClick = {
-                    message = "برای حفظ سوابق قبلی، ابتدا با ایمیل و رمز همان حساب وارد شو؛ سپس از داخل برنامه گوگل را به همان حساب متصل کن."
+                    message = ""
+                    busy = true
+                    try {
+                        googleLauncher.launch(googleClient.signInIntent)
+                    } catch (e: Exception) {
+                        busy = false
+                        message = authErrorMessage(e)
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy,
                 shape = RoundedCornerShape(12.dp)
             ) {
-                if (busy) CircularProgressIndicator()
-                else Text("ورود با گوگل")
+                if (busy) CircularProgressIndicator() else Text("ورود با گوگل")
             }
+
             Spacer(Modifier.height(18.dp))
-            Text("یا ورود با ایمیل و رمز عبور", style = MaterialTheme.typography.bodyMedium)
+            Text("یا ورود با ایمیل و رمز عبور")
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = email,
@@ -192,15 +185,16 @@ private fun SignInScreen(auth: FirebaseAuth) {
                 value = password,
                 onValueChange = { password = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("رمز عبور") },
+                label = { Text("رمز عبور (حداقل ۶ کاراکتر)") },
                 visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
                 enabled = !busy
             )
             Spacer(Modifier.height(16.dp))
+
             Button(
                 onClick = {
-                    val cleanEmail = email.trim().lowercase()
+                    val cleanEmail = email.trim()
                     if (cleanEmail.isBlank() || password.length < 6) {
                         message = "ایمیل معتبر و رمز عبور حداقل ۶ کاراکتری وارد کن."
                     } else {
@@ -209,9 +203,7 @@ private fun SignInScreen(auth: FirebaseAuth) {
                         auth.signInWithEmailAndPassword(cleanEmail, password)
                             .addOnCompleteListener { task ->
                                 busy = false
-                                if (!task.isSuccessful) {
-                                    message = signInErrorMessage(task.exception)
-                                }
+                                if (!task.isSuccessful) message = authErrorMessage(task.exception)
                             }
                     }
                 },
@@ -219,17 +211,35 @@ private fun SignInScreen(auth: FirebaseAuth) {
                 enabled = !busy,
                 shape = RoundedCornerShape(12.dp)
             ) {
-                if (busy) CircularProgressIndicator()
-                else Text("ورود")
+                if (busy) CircularProgressIndicator() else Text("ورود")
             }
+
+            TextButton(
+                onClick = {
+                    val cleanEmail = email.trim()
+                    if (cleanEmail.isBlank() || password.length < 6) {
+                        message = "برای ساخت حساب، ایمیل معتبر و رمز حداقل ۶ کاراکتری وارد کن."
+                    } else {
+                        busy = true
+                        message = ""
+                        auth.createUserWithEmailAndPassword(cleanEmail, password)
+                            .addOnCompleteListener { task ->
+                                busy = false
+                                if (!task.isSuccessful) message = authErrorMessage(task.exception)
+                            }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !busy
+            ) { Text("ساخت حساب جدید") }
+
             if (message.isNotBlank()) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(message, color = MaterialTheme.colorScheme.error)
             }
         }
     }
 }
-
 
 @Composable
 fun GoogleAccountLinkButton() {
@@ -249,9 +259,12 @@ fun GoogleAccountLinkButton() {
     val alreadyLinked = auth.currentUser?.providerData?.any { it.providerId == "google.com" } == true
 
     val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
+        ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode != Activity.RESULT_OK) {
+            busy = false
+            message = "اتصال گوگل لغو شد."
+        } else {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                     .getResult(ApiException::class.java)
@@ -262,25 +275,20 @@ fun GoogleAccountLinkButton() {
                     message = "ابتدا با حساب قبلی وارد شو."
                 } else if (token.isNullOrBlank()) {
                     busy = false
-                    message = "توکن گوگل دریافت نشد؛ تنظیمات OAuth را بررسی کن."
+                    message = "توکن گوگل دریافت نشد."
                 } else {
                     val credential = GoogleAuthProvider.getCredential(token, null)
                     currentUser.linkWithCredential(credential).addOnCompleteListener { task ->
                         busy = false
                         message = if (task.isSuccessful) {
-                            "حساب گوگل به همین حساب قبلی متصل شد؛ سوابق حفظ می‌شوند."
-                        } else {
-                            signInErrorMessage(task.exception)
-                        }
+                            "حساب گوگل به همین حساب قبلی متصل شد؛ سوابق حفظ شدند."
+                        } else authErrorMessage(task.exception)
                     }
                 }
-            } catch (error: Exception) {
+            } catch (e: Exception) {
                 busy = false
-                message = signInErrorMessage(error)
+                message = authErrorMessage(e)
             }
-        } else {
-            busy = false
-            message = "اتصال گوگل لغو شد."
         }
     }
 
@@ -291,9 +299,9 @@ fun GoogleAccountLinkButton() {
                 busy = true
                 try {
                     launcher.launch(googleClient.signInIntent)
-                } catch (error: Exception) {
+                } catch (e: Exception) {
                     busy = false
-                    message = signInErrorMessage(error)
+                    message = authErrorMessage(e)
                 }
             },
             enabled = !busy && !alreadyLinked,
@@ -304,7 +312,11 @@ fun GoogleAccountLinkButton() {
             else Text(if (alreadyLinked) "حساب گوگل متصل است" else "اتصال گوگل به حساب قبلی")
         }
         if (message.isNotBlank()) {
-            Text(message, color = if (message.contains("متصل شد")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+            Text(
+                message,
+                color = if (message.contains("متصل شد")) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.error
+            )
         }
     }
 }
