@@ -247,6 +247,7 @@ private fun SarresidApp(
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 90.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                item { GoogleAccountLinkButton() }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         IconButton(onClick = { if (month == 1) { month = 12; year-- } else month-- }) {
