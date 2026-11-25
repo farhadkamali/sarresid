@@ -167,14 +167,7 @@ private fun SignInScreen(auth: FirebaseAuth) {
             Spacer(Modifier.height(24.dp))
             OutlinedButton(
                 onClick = {
-                    message = ""
-                    busy = true
-                    try {
-                        googleSignInLauncher.launch(googleClient.signInIntent)
-                    } catch (error: Exception) {
-                        busy = false
-                        message = signInErrorMessage(error)
-                    }
+                    message = "برای حفظ سوابق قبلی، ابتدا با ایمیل و رمز همان حساب وارد شو؛ سپس از داخل برنامه گوگل را به همان حساب متصل کن."
                 },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !busy,
@@ -233,6 +226,85 @@ private fun SignInScreen(auth: FirebaseAuth) {
                 Spacer(Modifier.height(12.dp))
                 Text(message, color = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+
+
+@Composable
+fun GoogleAccountLinkButton() {
+    val context = LocalContext.current
+    val auth = remember { FirebaseAuth.getInstance() }
+    val googleOptions = remember(context) {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestIdToken(context.getString(R.string.google_web_client_id))
+            .build()
+    }
+    val googleClient = remember(context, googleOptions) {
+        GoogleSignIn.getClient(context, googleOptions)
+    }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    val alreadyLinked = auth.currentUser?.providerData?.any { it.providerId == "google.com" } == true
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            try {
+                val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    .getResult(ApiException::class.java)
+                val token = account.idToken
+                val currentUser = auth.currentUser
+                if (currentUser == null) {
+                    busy = false
+                    message = "ابتدا با حساب قبلی وارد شو."
+                } else if (token.isNullOrBlank()) {
+                    busy = false
+                    message = "توکن گوگل دریافت نشد؛ تنظیمات OAuth را بررسی کن."
+                } else {
+                    val credential = GoogleAuthProvider.getCredential(token, null)
+                    currentUser.linkWithCredential(credential).addOnCompleteListener { task ->
+                        busy = false
+                        message = if (task.isSuccessful) {
+                            "حساب گوگل به همین حساب قبلی متصل شد؛ سوابق حفظ می‌شوند."
+                        } else {
+                            signInErrorMessage(task.exception)
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                busy = false
+                message = signInErrorMessage(error)
+            }
+        } else {
+            busy = false
+            message = "اتصال گوگل لغو شد."
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedButton(
+            onClick = {
+                message = ""
+                busy = true
+                try {
+                    launcher.launch(googleClient.signInIntent)
+                } catch (error: Exception) {
+                    busy = false
+                    message = signInErrorMessage(error)
+                }
+            },
+            enabled = !busy && !alreadyLinked,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            if (busy) CircularProgressIndicator()
+            else Text(if (alreadyLinked) "حساب گوگل متصل است" else "اتصال گوگل به حساب قبلی")
+        }
+        if (message.isNotBlank()) {
+            Text(message, color = if (message.contains("متصل شد")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
         }
     }
 }
