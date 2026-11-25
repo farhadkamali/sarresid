@@ -58,28 +58,40 @@ fun AuthGate(content: @Composable (String) -> Unit) {
 }
 
 private fun signInErrorMessage(error: Exception?): String {
-    if (error is FirebaseNetworkException) {
-        return "ارتباط اینترنت برقرار نیست؛ اتصال را بررسی کن و دوباره تلاش کن."
+    val type = error?.javaClass?.simpleName ?: "UnknownException"
+    val authCode = (error as? FirebaseAuthException)?.errorCode
+    val detail = error?.localizedMessage
+        ?.replace(Regex("<[^>]*>"), " ")
+        ?.replace(Regex("\\s+"), " ")
+        ?.take(180)
+        ?.takeIf { it.isNotBlank() }
+
+    val friendly = when {
+        error is FirebaseNetworkException ->
+            "ارتباط با سرویس ورود برقرار نشد."
+        authCode == "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست."
+        authCode == "ERROR_USER_NOT_FOUND" ||
+            authCode == "ERROR_INVALID_CREDENTIAL" ||
+            authCode == "ERROR_WRONG_PASSWORD" -> "ایمیل یا رمز عبور صحیح نیست."
+        authCode == "ERROR_USER_DISABLED" -> "این حساب غیرفعال شده است."
+        authCode == "ERROR_OPERATION_NOT_ALLOWED" ->
+            "ورود با ایمیل و رمز عبور برای این برنامه فعال نیست."
+        authCode == "ERROR_TOO_MANY_REQUESTS" ->
+            "تلاش‌های ناموفق زیاد بوده؛ کمی بعد دوباره امتحان کن."
+        authCode == "ERROR_NETWORK_REQUEST_FAILED" ->
+            "درخواست ورود به سرور کامل نشد؛ ممکن است پاسخ سرور یا محدودیت دسترسی باشد."
+        else -> "ورود انجام نشد."
     }
 
-    val code = (error as? FirebaseAuthException)?.errorCode
-    return when (code) {
-        "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست."
-        "ERROR_USER_NOT_FOUND", "ERROR_INVALID_CREDENTIAL", "ERROR_WRONG_PASSWORD" ->
-            "ایمیل یا رمز عبور صحیح نیست."
-        "ERROR_USER_DISABLED" -> "این حساب غیرفعال شده است."
-        "ERROR_OPERATION_NOT_ALLOWED" -> "ورود با ایمیل و رمز عبور در Firebase فعال نیست."
-        "ERROR_TOO_MANY_REQUESTS" -> "تلاش‌های ناموفق زیاد بوده؛ کمی بعد دوباره امتحان کن."
-        "ERROR_NETWORK_REQUEST_FAILED" -> "ارتباط با سرویس ورود برقرار نشد؛ اینترنت را بررسی کن."
-        else -> {
-            val detail = error?.localizedMessage
-                ?.replace(Regex("<[^>]*>"), " ")
-                ?.replace(Regex("\\s+"), " ")
-                ?.take(220)
-                ?.takeIf { it.isNotBlank() }
-            "ورود انجام نشد." + (if (detail != null) " جزئیات: $detail" else " دوباره تلاش کن.")
+    val diagnostic = buildString {
+        append("کد فنی: ")
+        append(authCode ?: type)
+        if (detail != null) {
+            append(" | ")
+            append(detail)
         }
     }
+    return "$friendly\n$diagnostic"
 }
 
 @Composable
