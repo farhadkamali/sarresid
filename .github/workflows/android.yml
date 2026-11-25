@@ -20,17 +20,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      # Keep one debug signing key across builds so the Firebase SHA-1 stays stable.
       - name: Cache debug signing key
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
           key: sarresid-debug-keystore-v1
+      - name: Create debug signing key if missing
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Print debug SHA-1
-        run: |
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android | grep -E 'SHA1:'
+        run: keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android | grep -E 'SHA1:'
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
