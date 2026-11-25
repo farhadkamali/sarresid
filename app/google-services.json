@@ -12,20 +12,7 @@
           "package_name": "ir.farhadkamali.sarresid"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "194369955487-r434gju50efv90akskd2bocco8ik2r29.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "ir.farhadkamali.sarresid",
-            "certificate_hash": "02d7bf3107d4322694ddcf65e2d72e1711f521bf"
-          }
-        },
-        {
-          "client_id": "194369955487-0i7rgpm2kpf541flnib2nsta945vb86q.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
           "current_key": "AIzaSyDaXcESv0hDZ0ZDEYdhhPijGPgxBG7ZcLc"
@@ -33,12 +20,7 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "194369955487-0i7rgpm2kpf541flnib2nsta945vb86q.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }
