@@ -25,6 +25,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 import org.json.JSONObject
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.FirebaseFirestore
 import java.util.Calendar
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
@@ -56,9 +58,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("sarresid_data", MODE_PRIVATE)
+        val firestore = FirebaseFirestore.getInstance()
         setContent {
-            AuthGate {
+            AuthGate { uid ->
             SarresidApp(
+                cloudUid = uid,
+                firestore = firestore,
                 loadEntries = {
                     val array = JSONArray(prefs.getString("entries", "[]"))
                     List(array.length()) { i ->
@@ -107,11 +112,14 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SarresidApp(
+    cloudUid: String, firestore: FirebaseFirestore,
     loadEntries: () -> List<Entry>, saveEntries: (List<Entry>) -> Unit,
     loadBorrowers: () -> List<BorrowRecord>, saveBorrowers: (List<BorrowRecord>) -> Unit
 ) {
     var entries by remember { mutableStateOf(loadEntries()) }
     var borrowers by remember { mutableStateOf(loadBorrowers()) }
+    var cloudReady by remember(cloudUid) { mutableStateOf(false) }
+    var cloudStatus by remember(cloudUid) { mutableStateOf("در حال اتصال به فضای ابری...") }
     val today = remember { JalaliDate.today() }
     var year by remember { mutableIntStateOf(today.year) }
     var month by remember { mutableIntStateOf(today.month) }
@@ -119,6 +127,86 @@ private fun SarresidApp(
     var showDialog by remember { mutableStateOf(false) }
     var showBorrowDialog by remember { mutableStateOf(false) }
     var showAllDebtors by remember { mutableStateOf(false) }
+
+    LaunchedEffect(cloudUid) {
+        val userRef = firestore.collection("users").document(cloudUid)
+        userRef.collection("entries").get()
+            .addOnSuccessListener { entrySnapshot ->
+                userRef.collection("borrowers").get()
+                    .addOnSuccessListener { borrowerSnapshot ->
+                        val remoteEntries = entrySnapshot.documents.mapNotNull { doc ->
+                            try {
+                                Entry(
+                                    doc.getLong("id") ?: doc.id.toLong(),
+                                    doc.getString("type") ?: return@mapNotNull null,
+                                    doc.getString("title") ?: "",
+                                    doc.getLong("amount") ?: 0L,
+                                    (doc.getLong("day") ?: 1L).toInt(),
+                                    (doc.getLong("month") ?: 1L).toInt(),
+                                    (doc.getLong("year") ?: 1400L).toInt()
+                                )
+                            } catch (_: Exception) { null }
+                        }
+                        val remoteBorrowers = borrowerSnapshot.documents.mapNotNull { doc ->
+                            try {
+                                BorrowRecord(
+                                    doc.getLong("id") ?: doc.id.toLong(),
+                                    doc.getString("name") ?: "",
+                                    doc.getLong("amount") ?: 0L,
+                                    (doc.getLong("day") ?: 1L).toInt(),
+                                    (doc.getLong("month") ?: 1L).toInt(),
+                                    (doc.getLong("year") ?: 1400L).toInt(),
+                                    doc.getString("note") ?: "",
+                                    doc.getBoolean("paid") ?: false
+                                )
+                            } catch (_: Exception) { null }
+                        }
+                        val mergedEntries = (remoteEntries + entries.filter { local ->
+                            remoteEntries.none { it.id == local.id }
+                        }).distinctBy { it.id }
+                        val mergedBorrowers = (remoteBorrowers + borrowers.filter { local ->
+                            remoteBorrowers.none { it.id == local.id }
+                        }).distinctBy { it.id }
+                        entries = mergedEntries
+                        borrowers = mergedBorrowers
+                        saveEntries(mergedEntries)
+                        saveBorrowers(mergedBorrowers)
+                        cloudReady = true
+                        cloudStatus = "اتصال ابری برقرار است"
+                    }
+                    .addOnFailureListener { error ->
+                        cloudStatus = "خطا در دریافت اطلاعات ابری: ${error.localizedMessage ?: "نامشخص"}"
+                    }
+            }
+            .addOnFailureListener { error ->
+                cloudStatus = "خطا در اتصال ابری: ${error.localizedMessage ?: "نامشخص"}"
+            }
+    }
+
+    LaunchedEffect(entries, borrowers, cloudReady, cloudUid) {
+        if (cloudReady) {
+            val userRef = firestore.collection("users").document(cloudUid)
+            syncFirestoreCollection(
+                userRef.collection("entries"),
+                entries.map { item ->
+                    item.id.toString() to mapOf(
+                        "id" to item.id, "type" to item.type, "title" to item.title,
+                        "amount" to item.amount, "day" to item.day, "month" to item.month, "year" to item.year
+                    )
+                }
+            )
+            syncFirestoreCollection(
+                userRef.collection("borrowers"),
+                borrowers.map { item ->
+                    item.id.toString() to mapOf(
+                        "id" to item.id, "name" to item.name, "amount" to item.amount,
+                        "day" to item.day, "month" to item.month, "year" to item.year,
+                        "note" to item.note, "paid" to item.paid
+                    )
+                }
+            )
+        }
+    }
 
     val monthEntries = entries.filter { it.year == year && it.month == month }
     val income = monthEntries.filter { it.type == "کارکرد" }.sumOf { it.amount }
@@ -140,6 +228,7 @@ private fun SarresidApp(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.Gray
                             )
+                            Text(cloudStatus, style = MaterialTheme.typography.labelSmall, color = if (cloudReady) Green else Red)
                         }
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.White)
@@ -268,6 +357,20 @@ private fun SarresidApp(
                 }
             )
         }
+    }
+}
+
+
+private fun syncFirestoreCollection(
+    collection: CollectionReference,
+    items: List<Pair<String, Map<String, Any>>>
+) {
+    collection.get().addOnSuccessListener { snapshot ->
+        val batch = collection.firestore.batch()
+        val keepIds = items.map { it.first }.toSet()
+        snapshot.documents.filterNot { it.id in keepIds }.forEach { batch.delete(it.reference) }
+        items.forEach { (id, data) -> batch.set(collection.document(id), data) }
+        batch.commit()
     }
 }
 
