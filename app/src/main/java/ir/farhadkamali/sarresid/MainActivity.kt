@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 
 private val Blue = Color(0xFF1769AA)
 private val PaleBlue = Color(0xFFEAF4FC)
@@ -297,7 +300,7 @@ private fun AddBorrowerDialog(today: JalaliDate, onDismiss: () -> Unit, onSave: 
     var name by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    val parsedAmount = amount.toLongOrNull()
+    val parsedAmount = amount.filter(Char::isDigit).toLongOrNull()
     val valid = name.isNotBlank() && parsedAmount != null && parsedAmount > 0
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -306,7 +309,7 @@ private fun AddBorrowerDialog(today: JalaliDate, onDismiss: () -> Unit, onSave: 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("تاریخ ثبت: ${today.day} ${JalaliDate.monthName(today.month)} ${today.year}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(name, { name = it }, label = { Text("نام شخص") }, singleLine = true)
-                OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("مبلغ قرض به تومان") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(amount, { amount = formatAmountInput(it) }, label = { Text("مبلغ قرض به تومان") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 OutlinedTextField(note, { note = it }, label = { Text("توضیحات (اختیاری)") }, singleLine = true)
             }
         },
@@ -370,7 +373,7 @@ private fun AddEntryDialog(
                     }
                 }
                 OutlinedTextField(title, { title = it }, label = { Text("شرح") }, singleLine = true)
-                OutlinedTextField(amount, { amount = it.filter { c -> c.isDigit() } }, label = { Text("مبلغ به تومان") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                OutlinedTextField(amount, { amount = formatAmountInput(it) }, label = { Text("مبلغ به تومان") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedTextField(day, { day = it.filter(Char::isDigit).take(2) }, label = { Text("روز") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     OutlinedTextField(month, { month = it.filter(Char::isDigit).take(2) }, label = { Text("ماه") }, modifier = Modifier.weight(1f), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
@@ -383,7 +386,13 @@ private fun AddEntryDialog(
     )
 }
 
-private fun money(value: Long): String = "%,d".format(value)
+private fun money(value: Long): String =
+    DecimalFormat("#,##0", DecimalFormatSymbols(Locale.US)).format(value)
+
+private fun formatAmountInput(value: String): String {
+    val digits = value.filter(Char::isDigit)
+    return digits.toLongOrNull()?.let(::money) ?: digits
+}
 
 private data class JalaliDate(val year: Int, val month: Int, val day: Int) {
     companion object {
