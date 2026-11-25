@@ -1,6 +1,7 @@
 package ir.farhadkamali.sarresid
 
 import android.app.Activity
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,48 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.GoogleAuthProvider
 
+private const val AUTH_TAG = "SarresidAuth"
+
+private fun authErrorMessage(error: Exception?): String {
+    if (error == null) return "خطای نامشخص؛ جزئیات فنی دریافت نشد."
+    Log.e(AUTH_TAG, "Authentication operation failed", error)
+
+    val code = (error as? FirebaseAuthException)?.errorCode
+    val detail = error.localizedMessage
+        ?.replace(Regex("<[^>]*>"), " ")
+        ?.replace(Regex("\\s+"), " ")
+        ?.take(600)
+    val friendly = when {
+        error is FirebaseNetworkException -> "ارتباط اینترنت برقرار نیست؛ اتصال را بررسی کن."
+        code == "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست."
+        code == "ERROR_USER_NOT_FOUND" || code == "ERROR_WRONG_PASSWORD" ||
+            code == "ERROR_INVALID_CREDENTIAL" -> "ایمیل یا رمز عبور اشتباه است."
+        code == "ERROR_EMAIL_ALREADY_IN_USE" -> "این ایمیل قبلاً ثبت شده؛ از گزینه ورود استفاده کن."
+        code == "ERROR_WEAK_PASSWORD" -> "رمز عبور باید حداقل ۶ کاراکتر باشد."
+        code == "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ->
+            "این ایمیل قبلاً با روش دیگری ثبت شده؛ با ایمیل و رمز قبلی وارد شو."
+        code == "ERROR_OPERATION_NOT_ALLOWED" -> "این روش ورود در تنظیمات Firebase فعال نیست."
+        code == "ERROR_TOO_MANY_REQUESTS" -> "تعداد تلاش‌ها زیاد بوده؛ کمی بعد دوباره امتحان کن."
+        else -> "عملیات انجام نشد؛ جزئیات فنی در ادامه آمده است."
+    }
+    val className = error.javaClass.simpleName
+    val codeText = code?.let { "\\nFirebase code: $it" } ?: ""
+    val detailText = detail?.let { "\\nجزئیات: $it" } ?: ""
+    return "$friendly\\nنوع خطا: $className$codeText$detailText"
+}
+
+private fun googleResultError(data: android.content.Intent?): String {
+    return try {
+        GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
+        "ورود گوگل کامل نشد؛ پاسخ نامشخص بود."
+    } catch (e: ApiException) {
+        Log.e(AUTH_TAG, "Google sign-in activity failed; statusCode=${e.statusCode}", e)
+        "ورود گوگل ناموفق بود. کد فنی Google: ${e.statusCode}، توضیح: ${e.statusMessage ?: e.localizedMessage ?: "بدون توضیح"}"
+    } catch (e: Exception) {
+        authErrorMessage(e)
+    }
+}
+
 @Composable
 fun AuthGate(content: @Composable (String) -> Unit) {
     val auth = remember { FirebaseAuth.getInstance() }
@@ -67,30 +110,6 @@ fun AuthGate(content: @Composable (String) -> Unit) {
     }
 }
 
-private fun authErrorMessage(error: Exception?): String {
-    val code = (error as? FirebaseAuthException)?.errorCode
-    val detail = error?.localizedMessage
-        ?.replace(Regex("<[^>]*>"), " ")
-        ?.replace(Regex("\\s+"), " ")
-        ?.take(140)
-    val friendly = when {
-        error is FirebaseNetworkException -> "ارتباط اینترنت برقرار نیست؛ اتصال را بررسی کن."
-        code == "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست."
-        code == "ERROR_USER_NOT_FOUND" || code == "ERROR_WRONG_PASSWORD" ||
-            code == "ERROR_INVALID_CREDENTIAL" -> "ایمیل یا رمز عبور اشتباه است."
-        code == "ERROR_EMAIL_ALREADY_IN_USE" -> "این ایمیل قبلاً ثبت شده؛ از گزینه ورود استفاده کن."
-        code == "ERROR_WEAK_PASSWORD" -> "رمز عبور باید حداقل ۶ کاراکتر باشد."
-        code == "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL" ->
-            "این ایمیل قبلاً با روش دیگری ثبت شده؛ با ایمیل و رمز قبلی وارد شو."
-        code == "ERROR_OPERATION_NOT_ALLOWED" -> "این روش ورود در تنظیمات Firebase فعال نیست."
-        code == "ERROR_TOO_MANY_REQUESTS" -> "تعداد تلاش‌ها زیاد بوده؛ کمی بعد دوباره امتحان کن."
-        else -> "عملیات انجام نشد."
-    }
-    return if (code != null) "$friendly\nکد خطا: $code" +
-        (detail?.let { " | $it" } ?: "") else friendly +
-        (detail?.let { "\\n$it" } ?: "")
-}
-
 @Composable
 private fun SignInScreen(auth: FirebaseAuth) {
     val context = LocalContext.current
@@ -114,7 +133,7 @@ private fun SignInScreen(auth: FirebaseAuth) {
     ) { result ->
         if (result.resultCode != Activity.RESULT_OK) {
             busy = false
-            message = "ورود با گوگل لغو شد."
+            message = googleResultError(result.data)
         } else {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
@@ -132,7 +151,8 @@ private fun SignInScreen(auth: FirebaseAuth) {
                 }
             } catch (e: ApiException) {
                 busy = false
-                message = "انتخاب حساب گوگل انجام نشد. کد فنی: ${e.statusCode}"
+                Log.e(AUTH_TAG, "Google account result failed; statusCode=${e.statusCode}", e)
+                message = "انتخاب حساب گوگل ناموفق بود. کد فنی: ${e.statusCode}، توضیح: ${e.statusMessage ?: e.localizedMessage ?: "بدون توضیح"}"
             } catch (e: Exception) {
                 busy = false
                 message = authErrorMessage(e)
@@ -263,7 +283,7 @@ fun GoogleAccountLinkButton() {
     ) { result ->
         if (result.resultCode != Activity.RESULT_OK) {
             busy = false
-            message = "اتصال گوگل لغو شد."
+            message = googleResultError(result.data)
         } else {
             try {
                 val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
