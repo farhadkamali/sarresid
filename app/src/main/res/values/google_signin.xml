@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Replace with the Web client ID from Firebase/Google Cloud OAuth credentials. -->
-    <string name="google_web_client_id" translatable="false">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
+    <string name="google_web_client_id" translatable="false">194369955487-0i7rgpm2kpf541flnib2nsta945vb86q.apps.googleusercontent.com</string>
 </resources>
