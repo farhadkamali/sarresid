@@ -63,7 +63,15 @@ private fun authErrorMessage(error: Exception?): String {
         return "اتصال اینترنت برقرار نیست. اینترنت را بررسی کن و دوباره تلاش کن. (network-error)"
     }
 
-    val code = (error as? FirebaseAuthException)?.errorCode ?: "unknown"
+    val authException = error as? FirebaseAuthException
+    val code = authException?.errorCode
+    if (code == null) {
+        val type = error?.javaClass?.simpleName ?: "NoException"
+        val detail = error?.localizedMessage?.takeIf { it.isNotBlank() } ?: "بدون توضیح از Firebase"
+        val cause = error?.cause?.javaClass?.simpleName
+        val causeText = if (cause != null) " / $cause" else ""
+        return "خطای فنی ورود: $type$causeText — $detail"
+    }
     return when (code) {
         "ERROR_INVALID_EMAIL" -> "فرمت ایمیل صحیح نیست. (invalid-email)"
         "ERROR_USER_NOT_FOUND", "ERROR_INVALID_CREDENTIAL" ->
