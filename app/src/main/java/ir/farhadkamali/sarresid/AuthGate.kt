@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 
 @Composable
-fun AuthGate(content: @Composable () -> Unit) {
+fun AuthGate(content: @Composable (String) -> Unit) {
     val auth = remember { FirebaseAuth.getInstance() }
     var user by remember { mutableStateOf(auth.currentUser) }
     var checking by remember { mutableStateOf(true) }
@@ -52,7 +52,7 @@ fun AuthGate(content: @Composable () -> Unit) {
             ) { CircularProgressIndicator() }
         }
     } else if (user != null) {
-        content()
+        content(user!!.uid)
     } else {
         SignInScreen(auth)
     }
