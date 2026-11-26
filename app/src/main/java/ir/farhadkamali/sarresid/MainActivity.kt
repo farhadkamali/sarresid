@@ -309,8 +309,27 @@ private fun SarresidApp(
                     } else {
                         items(debtorRows, key = { "borrow-" + it.id }) { borrower ->
                             BorrowerRow(borrower, showAllDebtors) {
-                                borrowers = borrowers.map { if (it.id == borrower.id) it.copy(paid = true) else it }
-                                saveBorrowers(borrowers)
+                                if (!borrower.paid) {
+                                    val updatedBorrowers = borrowers.map {
+                                        if (it.id == borrower.id) it.copy(paid = true) else it
+                                    }
+                                    val settlementEntry = Entry(
+                                        System.currentTimeMillis(),
+                                        "کارکرد",
+                                        "تسویه قرض: ${borrower.name}",
+                                        borrower.amount,
+                                        today.day,
+                                        today.month,
+                                        today.year
+                                    )
+                                    val updatedEntries = entries + settlementEntry
+                                    borrowers = updatedBorrowers
+                                    entries = updatedEntries
+                                    saveBorrowers(updatedBorrowers)
+                                    saveEntries(updatedEntries)
+                                    year = today.year
+                                    month = today.month
+                                }
                             }
                         }
                     }
